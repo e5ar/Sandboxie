@@ -157,8 +157,8 @@ BOOL CAboutDialog::OnInitDialog()
     text.Format(L"%S\r\n%S", MY_COPYRIGHT_STRING, MY_COPYRIGHT_STRING_OLD);
     GetDlgItem(ID_ABOUT_COPYRIGHT)->SetWindowText(text);
 
-    SCertInfo CertInfo = { 0 };
-    SbieApi_Call(API_QUERY_DRIVER_INFO, 3, -1, (ULONG_PTR)&CertInfo, sizeof(CertInfo));
+    __declspec(align(8)) SCertInfo CertInfo = { 0 };
+    SbieApi_QueryDrvInfo(-1, &CertInfo, sizeof(CertInfo));
     if (CertInfo.active)
         GetDlgItem(ID_ABOUT_INFO)->SetWindowText(CMyMsg(MSG_7988));
     else if (CertInfo.expired) // expired && !active -> outdated
