@@ -1,4 +1,4 @@
-name: CI
+name: CI (Only Drv.sys)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
   push:
     branches: [master, experimental]
     paths-ignore:
-      # Case-sensitive paths to ignore on push events
+      # 保留原有路径忽略规则，避免非代码变更触发构建
       - '.editorconfig'
       - '.gitattributes'
       - '.gitignore'
@@ -38,7 +38,7 @@ on:
   pull_request:
     branches: [master, experimental]
     paths-ignore:
-      # Case-sensitive paths to ignore on pull events
+      # 保留原有路径忽略规则
       - '.editorconfig'
       - '.gitattributes'
       - '.gitignore'
@@ -70,239 +70,86 @@ on:
 
 env:
   forbuildVariables: use Installer\buildVariables.cmd file
-  #qt_version: 5.15.16
-  #qt6_version: 6.6.3
-  #openssl_version: 3.4.0
-  #ghSsl_user: xanasoft
-  #ghSsl_repo: openssl-builds
-  #ghQt6Win7_user: DavidXanatos
-  #ghQt6Win7_repo: qtbase
-  #ghQtBuilds_user: xanasoft
-  #ghQtBuilds_repo: qt-builds
-  #ghQtBuilds_hash_x86: 502e9a36a52918af4e116cd74c16c6c260d029087aaeee3775ab0e5d3f6a2705
-  #ghQtBuilds_hash_x64: 673c288feeabd11ec66f9f454d49cde3945cbd3e3f71283b7a6c4df0893b19f2
 
 jobs:
-          
-  Build_x64_Qt6:
+  # 仅保留 x64 驱动编译（如需 ARM64 可保留，按需调整）
+  Build_Drv_x64:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 15  # 驱动编译耗时短，缩短超时时间
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Load Variables from buildVariables.cmd
-        shell: cmd
-        run: |
-          @echo on
-          call "${{ github.workspace }}\Installer\buildVariables.cmd" build_qt6
-          echo qt6_version=%qt6_version% >> %GITHUB_ENV%
-          echo qt_version=%qt6_version% >> %GITHUB_ENV%
-
       - name: Setup msbuild
         uses: microsoft/setup-msbuild@v2
 
-    #
-    # Compile Sandboxie Core
-    #
-
-      - name: Build Sandboxie x86 (DLLs & svc)
-        run: msbuild /t:build Sandboxie\SandboxDll.sln /p:Configuration="SbieRelease" /p:Platform=Win32 -maxcpucount:8
-
-      - name: Build Sandboxie x64 (all)
-        run: msbuild /t:build Sandboxie\Sandbox.sln /p:Configuration="SbieRelease" /p:Platform=x64 -maxcpucount:8
-        
+      # 仅编译 x64 驱动（删除其他 Core/DLL/Tools 编译步骤）
       - name: Build Sandboxie x64 (drv)
         run: msbuild /t:build Sandboxie\SandboxDrv.sln /p:Configuration="SbieRelease" /p:Platform=x64 -maxcpucount:8
 
-    #
-    # Prepare Qt Framework
-    #
+      # 打包驱动文件（确认驱动输出路径：Sandboxie\x64\SbieRelease\SbieDrv.sys）
+      - name: Package x64 Drv
+        run: |
+          mkdir -Force driver-x64
+          copy Sandboxie\x64\SbieRelease\SbieDrv.sys driver-x64\SbieDrv_x64.sys
+          7z a SbieDrv_x64_Release.zip .\driver-x64\*
 
-#      - name: Install Qt6 x64
-#        uses: jurplel/install-qt-action@v4.3.0
-#        with:
-#      #    version: '6.2.4'
-#          version: '${{ env.qt6_version }}'
-#      #    dir: ..
-#      #    arch:  ${{ matrix.qt-target }}
-#          arch:  'win64_msvc2022_64'
-#      #    tools: 'tools_qtcreator,4.14.0-0-202012170949,qt.tools.qtcreator'
-#          tools: 'tools_opensslv3_x64'
-#          cache: true
-
-      - name: Install Qt6 x64
-        run: SandboxiePlus\install_qt.cmd x64
-
-      - name: Installing Jom
-      #  if: steps.cache-qt.outputs.cache-hit != 'true'
-        run: SandboxiePlus\install_jom.cmd
-
-    #
-    # Compile Sandboxie Plus
-    #
-
-      - name: Build Sandboxie-Plus x64
-        run: SandboxiePlus\qmake_plus.cmd x64 build_qt6
-
-      - name: Build SbieShell x64
-        run: msbuild /t:restore,build -p:RestorePackagesConfig=true SandboxiePlus\SbieShell\SbieShell.sln /p:Configuration="Release" /p:Platform=x64
-
-    #
-    # Compile Sandboxie Tools
-    #
-
-      - name: Build Sandboxie-Tools x64
-        run: msbuild /t:build SandboxieTools\SandboxieTools.sln /p:Configuration="Release" /p:Platform=x64 -maxcpucount:8
-
-    #
-    # Merge everything together
-    #
-
-#      - name: Add Windows 7 compatible Qt6 DLLs
-#        run: Installer\fix_qt6_win7.cmd
-
-      - name: Add missing languages for Qt6 (issue 1528)
-        run: Installer\fix_qt5_languages.cmd x64 build_qt6
-
-      - name: Get openssl binaries
-        run: Installer\get_openssl.cmd
-
-      - name: Get 7z binaries
-        run: Installer\get_7zip.cmd
-
-      - name: Merging Build
-        run: Installer\copy_build.cmd x64 build_qt6
-
-      - name: Collect installer assets
-        run: Installer\get_assets.cmd
-
-      - name: Upload installer assets
-        #if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+      # 上传驱动 artifact（便于手动下载）
+      - name: Upload x64 Driver Artifact
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: Assets
-          path: |
-            Installer/Assets/*
+          name: SbieDrv_x64
+          path: SbieDrv_x64_Release.zip
           retention-days: 60
 
-      - name: Upload Sandboxie x64
-        #if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v6.0.0
+      # 自动发布到 Releases（仅 master 分支推送、非 PR 时触发）
+      - name: Create x64 Driver Release
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
         with:
-          name: Sandboxie_x64
-          path: |
-            Installer/SbiePlus_x64/*
-          retention-days: 60
+          files: SbieDrv_x64_Release.zip
+          tag_name: drv-x64-v${{ github.run_number }}
+          name: SbieDrv x64 Release v${{ github.run_number }}
+          body: "仅 Sandboxie x64 驱动文件 (SbieDrv.sys)，编译配置：SbieRelease"
 
-
-
-
-  Build_ARM64_Qt6:
+  # 可选：保留 ARM64 驱动编译（如需则启用，否则删除此 job）
+  Build_Drv_ARM64:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Load Variables from buildVariables.cmd
-        shell: cmd
-        run: |
-          @echo on
-          call "${{ github.workspace }}\Installer\buildVariables.cmd" build_qt6
-          echo qt6_version=%qt6_version% >> %GITHUB_ENV%
-
       - name: Setup msbuild
         uses: microsoft/setup-msbuild@v2
 
-    #
-    # Compile Sandboxie Core
-    #
-
-      - name: Build Sandboxie x86 (DLLs & svc)
-        run: msbuild /t:build Sandboxie\SandboxDll.sln /p:Configuration="SbieRelease" /p:Platform=Win32 -maxcpucount:8
-
-      - name: Build Sandboxie ARM64 (all)
-        run: msbuild /t:build Sandboxie\Sandbox.sln /p:Configuration="SbieRelease" /p:Platform=ARM64 -maxcpucount:8
-
-      - name: Build Sandboxie ARM64EC (DLL)
-        run: msbuild /t:build Sandboxie\SandboxDll.sln /p:Configuration="SbieRelease" /p:Platform=ARM64EC -maxcpucount:8
-
+      # 仅编译 ARM64 驱动
       - name: Build Sandboxie ARM64 (drv)
         run: msbuild /t:build Sandboxie\SandboxDrv.sln /p:Configuration="SbieRelease" /p:Platform=ARM64 -maxcpucount:8
 
-    #
-    # Prepare Qt Framework for ARM64 (we also need Qt x64 for some utilities like qmake)
-    #
+      # 打包 ARM64 驱动
+      - name: Package ARM64 Drv
+        run: |
+          mkdir -Force driver-arm64
+          copy Sandboxie\ARM64\SbieRelease\SbieDrv.sys driver-arm64\SbieDrv_ARM64.sys
+          7z a SbieDrv_ARM64_Release.zip .\driver-arm64\*
 
-      - name: Install Qt6 x64
-        uses: jurplel/install-qt-action@v4.3.0
-        with:
-      #    version: '6.2.4'
-          version: '${{ env.qt6_version }}'
-      #    dir: ..
-      #    arch:  ${{ matrix.qt-target }}
-          arch:  'win64_msvc2022_64'
-      #    tools: 'tools_qtcreator,4.14.0-0-202012170949,qt.tools.qtcreator'
-          tools: 'tools_opensslv3_x64'
-          cache: true
-
-      - name: Install Qt6 ARM64
-        uses: jurplel/install-qt-action@v4.3.0
-        with:
-      #    version: '6.2.4'
-          version: '${{ env.qt6_version }}'
-      #    dir: ..
-      #    arch:  ${{ matrix.qt-target }}
-          arch:  'win64_msvc2022_arm64_cross_compiled'
-      #    tools: 'tools_qtcreator,4.14.0-0-202012170949,qt.tools.qtcreator'
-          tools: 'tools_opensslv3_x64'
-          cache: true
-
-      - name: Installing Jom
-      #  if: steps.cache-qt.outputs.cache-hit != 'true'
-        run: SandboxiePlus\install_jom.cmd
-
-    #
-    # Compile Sandboxie Plus
-    #
-
-      - name: Build Sandboxie-Plus ARM64
-        run: SandboxiePlus\qmake_plus.cmd ARM64 build_qt6
-
-      - name: Build SbieShell ARM64
-        run: msbuild /t:restore,build -p:RestorePackagesConfig=true SandboxiePlus\SbieShell\SbieShell.sln /p:Configuration="Release" /p:Platform=ARM64
-
-    #
-    # Compile Sandboxie Tools
-    #
-
-      - name: Build Sandboxie-Tools ARM64
-        run: msbuild /t:build SandboxieTools\SandboxieTools.sln /p:Configuration="Release" /p:Platform=ARM64 -maxcpucount:8
-
-    #
-    # Merge everything together
-    #
-
-      - name: Add missing languages for Qt6 (issue 1528)
-        run: Installer\fix_qt5_languages.cmd x64 build_qt6
-
-      - name: Get openssl binaries
-        run: Installer\get_openssl.cmd
-
-      - name: Get 7z binaries
-        run: Installer\get_7zip.cmd
-
-      - name: Merging Build
-        run: Installer\copy_build.cmd ARM64 build_qt6
-
-      - name: Upload Sandboxie ARM64
-        #if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+      # 上传 ARM64 驱动 artifact
+      - name: Upload ARM64 Driver Artifact
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: Sandboxie_ARM64
-          path: |
-            Installer/SbiePlus_a64/*
+          name: SbieDrv_ARM64
+          path: SbieDrv_ARM64_Release.zip
           retention-days: 60
+
+      # 自动发布 ARM64 驱动到 Releases
+      - name: Create ARM64 Driver Release
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SbieDrv_ARM64_Release.zip
+          tag_name: drv-arm64-v${{ github.run_number }}
+          name: SbieDrv ARM64 Release v${{ github.run_number }}
+          body: "仅 Sandboxie ARM64 驱动文件 (SbieDrv.sys)，编译配置：SbieRelease"
