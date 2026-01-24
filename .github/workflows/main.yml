@@ -92,7 +92,7 @@ jobs:
       - name: Package x64 Drv
         run: |
           mkdir -Force driver-x64
-          copy Sandboxie\x64\SbieRelease\SbieDrv.sys driver-x64\SbieDrv_x64.sys
+          copy Sandboxie\Bin\x64\SbieRelease\SbieDrv.sys driver-x64\SbieDrv_x64.sys
           7z a SbieDrv_x64_Release.zip .\driver-x64\*
 
       # 上传驱动 artifact（便于手动下载）
@@ -133,7 +133,7 @@ jobs:
       - name: Package ARM64 Drv
         run: |
           mkdir -Force driver-arm64
-          copy Sandboxie\ARM64\SbieRelease\SbieDrv.sys driver-arm64\SbieDrv_ARM64.sys
+          copy Sandboxie\Bin\ARM64\SbieRelease\SbieDrv.sys driver-arm64\SbieDrv_ARM64.sys
           7z a SbieDrv_ARM64_Release.zip .\driver-arm64\*
 
       # 上传 ARM64 驱动 artifact
